@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(apiRoot, '../..')
+const tsxCli = path.join(repoRoot, 'node_modules/tsx/dist/cli.mjs')
 
 test('authenticates, creates a declaration, and records audit events', async () => {
   const databaseUrl = `file:${path.join(mkdtempSync(path.join(tmpdir(), 'tradenet-api-')), 'test.db')}`
@@ -27,14 +28,17 @@ test('authenticates, creates a declaration, and records audit events', async () 
     stdio: 'ignore',
   })
 
-  const server = spawn('npx', ['tsx', 'src/index.ts'], {
+  const server = spawn(process.execPath, [tsxCli, 'src/index.ts'], {
     cwd: apiRoot,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  const serverOutput: string[] = []
+  server.stdout?.on('data', (chunk) => serverOutput.push(String(chunk)))
+  server.stderr?.on('data', (chunk) => serverOutput.push(String(chunk)))
 
   try {
-    await waitForHealth(port, server)
+    await waitForHealth(port, server, serverOutput)
 
     const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: 'POST',
@@ -42,7 +46,8 @@ test('authenticates, creates a declaration, and records audit events', async () 
       body: JSON.stringify({ email: 'importer@tradenet.demo', password: 'TradeNet@2026' }),
     })
     assert.equal(login.status, 200)
-    const cookie = login.headers.getSetCookie().join('; ')
+    const setCookie = login.headers.getSetCookie?.() ?? [login.headers.get('set-cookie')].filter(Boolean)
+    const cookie = setCookie.join('; ')
     assert.match(cookie, /tn_session=/)
 
     const dashboard = await authedFetch<{ declarationCount: number }>(port, '/api/dashboard', cookie)
@@ -93,10 +98,10 @@ async function authedFetch<T>(port: number, pathName: string, cookie: string, in
   return response.json() as Promise<T>
 }
 
-async function waitForHealth(port: number, server: ChildProcess) {
+async function waitForHealth(port: number, server: ChildProcess, serverOutput: string[]) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (server.exitCode !== null) {
-      throw new Error(`API exited before health check passed with code ${server.exitCode}`)
+      throw new Error(`API exited before health check passed with code ${server.exitCode}\n${serverOutput.join('')}`)
     }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`)
@@ -107,7 +112,7 @@ async function waitForHealth(port: number, server: ChildProcess) {
       await delay(250)
     }
   }
-  throw new Error('Timed out waiting for API health')
+  throw new Error(`Timed out waiting for API health\n${serverOutput.join('')}`)
 }
 
 async function stopServer(server: ChildProcess) {
