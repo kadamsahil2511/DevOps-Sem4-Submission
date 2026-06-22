@@ -1,0 +1,25 @@
+{
+  "name": "@tradenet/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "node --test --import tsx src/*.test.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "nanoid": "^5.1.6",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.2"
+  }
+}

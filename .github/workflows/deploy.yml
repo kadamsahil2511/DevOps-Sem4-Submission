@@ -1,0 +1,126 @@
+name: Deploy Demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tradenet-demo
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  EC2_INSTANCE_ID: i-0715e18824145339e
+  EC2_HOST: 13.201.205.69
+  EC2_AVAILABILITY_ZONE: ap-south-1a
+  EC2_SECURITY_GROUP_ID: sg-018b39741e4818441
+  EC2_USER: ec2-user
+  APP_DIR: /opt/tradenet
+
+jobs:
+  deploy:
+    name: Build and deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare runtime bundle
+        run: |
+          rm -rf deploy-runtime deploy-artifacts
+          mkdir -p deploy-runtime/services/api deploy-artifacts
+          cp package.json package-lock.json deploy-runtime/
+          cp services/api/package.json deploy-runtime/services/api/package.json
+          cp -R dist deploy-runtime/dist
+          cp -R services/api/dist deploy-runtime/services/api/dist
+          (
+            cd deploy-runtime
+            npm ci --omit=dev --workspace @tradenet/api --ignore-scripts
+          )
+          tar --no-xattrs -czf deploy-artifacts/tradenet-runtime.tar.gz -C deploy-runtime .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Open temporary SSH ingress
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$EC2_SECURITY_GROUP_ID" \
+            --ip-permissions 'IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description="GitHub Actions EC2 Instance Connect"}]' || true
+
+      - name: Generate ephemeral SSH key
+        run: |
+          ssh-keygen -t ed25519 -f /tmp/tradenet_eic -N "" -C github-actions-tradenet
+
+      - name: Send EC2 Instance Connect key
+        run: |
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --availability-zone "$EC2_AVAILABILITY_ZONE" \
+            --instance-os-user "$EC2_USER" \
+            --ssh-public-key file:///tmp/tradenet_eic.pub
+
+      - name: Copy bundle to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -i /tmp/tradenet_eic \
+            deploy-artifacts/tradenet-runtime.tar.gz \
+            "$EC2_USER@$EC2_HOST:/tmp/tradenet-runtime.tar.gz"
+
+      - name: Deploy on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i /tmp/tradenet_eic "$EC2_USER@$EC2_HOST" <<'SSH'
+          set -euo pipefail
+          sudo systemctl stop tradenet-api || true
+          sudo rm -rf /opt/tradenet.release
+          sudo mkdir -p /opt/tradenet.release
+          sudo tar -xzf /tmp/tradenet-runtime.tar.gz -C /opt/tradenet.release
+          sudo chown -R ec2-user:ec2-user /opt/tradenet.release
+          sudo rm -rf /opt/tradenet.previous
+          if [ -d /opt/tradenet ]; then
+            sudo mv /opt/tradenet /opt/tradenet.previous
+          fi
+          sudo mv /opt/tradenet.release /opt/tradenet
+          sudo systemctl start tradenet-api
+          sudo nginx -t
+          sudo systemctl reload nginx
+          curl -f http://127.0.0.1:8080/api/health
+          SSH
+
+      - name: Close temporary SSH ingress
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$EC2_SECURITY_GROUP_ID" \
+            --ip-permissions 'IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description="GitHub Actions EC2 Instance Connect"}]' || true
+
+      - name: Verify production URL
+        run: |
+          curl -fL https://telnet.superuserz.com/
+          curl -f https://telnet.superuserz.com/api/health

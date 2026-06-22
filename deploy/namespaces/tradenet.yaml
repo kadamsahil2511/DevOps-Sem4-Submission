@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tradenet-apps
+  labels:
+    app.kubernetes.io/part-of: tradenet
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: tradenet
