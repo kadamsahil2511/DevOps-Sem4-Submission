@@ -49,6 +49,7 @@ aws ec2 authorize-security-group-ingress \
   --group-id "$EC2_SECURITY_GROUP_ID" \
   --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${runner_ip}/32,Description=\"Local TradeNet force deploy\"}]" >/dev/null 2>&1 || true
 
+rm -f "$ssh_key" "$ssh_key.pub"
 ssh-keygen -t ed25519 -f "$ssh_key" -N "" -C local-tradenet-force-deploy >/dev/null
 aws ec2-instance-connect send-ssh-public-key \
   --region "$AWS_REGION" \
