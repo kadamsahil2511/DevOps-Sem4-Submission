@@ -150,8 +150,16 @@ sudo systemctl start tradenet-api
 sudo nginx -t
 sudo systemctl reload nginx
 
-curl -fsS http://127.0.0.1:8080/api/health
-curl -fsS http://127.0.0.1:8080/api/ready
+for attempt in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:8080/api/health && curl -fsS http://127.0.0.1:8080/api/ready; then
+    break
+  fi
+  sleep 2
+  if [ "$attempt" = "30" ]; then
+    sudo systemctl status tradenet-api --no-pager
+    exit 1
+  fi
+done
 curl -fsSL "$PUBLIC_URL/" >/dev/null
 cookie="$(mktemp)"
 curl -fsS -c "$cookie" -H 'Content-Type: application/json' \
