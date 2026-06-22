@@ -38,8 +38,13 @@ This repository includes three workflows:
 The deploy workflow uses temporary EC2 Instance Connect SSH access and closes port `22` after deployment. Add these repository secrets before relying on automatic deployment:
 
 ```plain text
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
+No long-lived AWS access key is required.
+```
+
+GitHub Actions authenticates to AWS through OpenID Connect using this deploy role:
+
+```plain text
+arn:aws:iam::116981787180:role/TradeNetGitHubActionsDeployRole
 ```
 
 The current demo deployment target is:

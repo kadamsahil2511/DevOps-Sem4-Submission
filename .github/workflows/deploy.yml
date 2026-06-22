@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: tradenet-demo
@@ -20,6 +21,7 @@ env:
   EC2_SECURITY_GROUP_ID: sg-018b39741e4818441
   EC2_USER: ec2-user
   APP_DIR: /opt/tradenet
+  AWS_ROLE_ARN: arn:aws:iam::116981787180:role/TradeNetGitHubActionsDeployRole
 
 jobs:
   deploy:
@@ -65,15 +67,18 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: tradenet-github-actions
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Open temporary SSH ingress
+        id: ssh-ingress
         run: |
+          runner_ip="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')"
+          echo "runner_ip=$runner_ip" >> "$GITHUB_OUTPUT"
           aws ec2 authorize-security-group-ingress \
             --group-id "$EC2_SECURITY_GROUP_ID" \
-            --ip-permissions 'IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description="GitHub Actions EC2 Instance Connect"}]' || true
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${runner_ip}/32,Description=\"GitHub Actions EC2 Instance Connect\"}]" || true
 
       - name: Generate ephemeral SSH key
         run: |
@@ -116,9 +121,13 @@ jobs:
       - name: Close temporary SSH ingress
         if: always()
         run: |
+          runner_ip="${{ steps.ssh-ingress.outputs.runner_ip }}"
+          if [ -z "$runner_ip" ]; then
+            exit 0
+          fi
           aws ec2 revoke-security-group-ingress \
             --group-id "$EC2_SECURITY_GROUP_ID" \
-            --ip-permissions 'IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description="GitHub Actions EC2 Instance Connect"}]' || true
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${runner_ip}/32,Description=\"GitHub Actions EC2 Instance Connect\"}]" || true
 
       - name: Verify production URL
         run: |
