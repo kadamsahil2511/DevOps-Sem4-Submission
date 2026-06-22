@@ -6,12 +6,13 @@ export const declarationInputSchema = z.object({
   originCountry: z.string().length(2),
   destinationCountry: z.string().length(2),
   commodityCategory: z.string().min(2),
+  hsCode: z.string().min(4).default('0000.00'),
   declaredValue: z.number().positive(),
   previousViolation: z.boolean().default(false),
   documents: z.array(z.string()).default([]),
 })
 
-export type DeclarationInput = z.infer<typeof declarationInputSchema>
+export type DeclarationInput = z.input<typeof declarationInputSchema>
 
 export type DeclarationStatus =
   | 'RECEIVED'
@@ -31,6 +32,7 @@ export type Declaration = {
   originCountry: string
   destinationCountry: string
   commodityCategory: string
+  hsCode: string
   declaredValue: number
   previousViolation: boolean
   documents: string[]
@@ -83,9 +85,10 @@ export class DeclarationStore {
       originCountry: input.originCountry.toUpperCase(),
       destinationCountry: input.destinationCountry.toUpperCase(),
       commodityCategory: input.commodityCategory.toLowerCase(),
+      hsCode: input.hsCode ?? '0000.00',
       declaredValue: input.declaredValue,
-      previousViolation: input.previousViolation,
-      documents: input.documents,
+      previousViolation: input.previousViolation ?? false,
+      documents: input.documents ?? [],
       history: [],
       idempotencyKey,
       createdAt: now,

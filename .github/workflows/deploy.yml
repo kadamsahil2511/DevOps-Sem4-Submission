@@ -54,14 +54,11 @@ jobs:
         run: |
           rm -rf deploy-runtime deploy-artifacts
           mkdir -p deploy-runtime/services/api deploy-artifacts
-          cp package.json package-lock.json deploy-runtime/
+          cp package.json package-lock.json prisma.config.ts deploy-runtime/
           cp services/api/package.json deploy-runtime/services/api/package.json
+          cp -R services/api/prisma deploy-runtime/services/api/prisma
           cp -R dist deploy-runtime/dist
           cp -R services/api/dist deploy-runtime/services/api/dist
-          (
-            cd deploy-runtime
-            npm ci --omit=dev --workspace @tradenet/api --ignore-scripts
-          )
           tar --no-xattrs -czf deploy-artifacts/tradenet-runtime.tar.gz -C deploy-runtime .
 
       - name: Configure AWS credentials
@@ -107,15 +104,55 @@ jobs:
           sudo mkdir -p /opt/tradenet.release
           sudo tar -xzf /tmp/tradenet-runtime.tar.gz -C /opt/tradenet.release
           sudo chown -R ec2-user:ec2-user /opt/tradenet.release
+          sudo rm -rf /opt/tradenet.data.keep
+          if [ -d /opt/tradenet/data ]; then
+            sudo mv /opt/tradenet/data /opt/tradenet.data.keep
+          fi
           sudo rm -rf /opt/tradenet.previous
           if [ -d /opt/tradenet ]; then
             sudo mv /opt/tradenet /opt/tradenet.previous
           fi
           sudo mv /opt/tradenet.release /opt/tradenet
+          if [ -d /opt/tradenet.data.keep ]; then
+            sudo mv /opt/tradenet.data.keep /opt/tradenet/data
+          fi
+          sudo mkdir -p /opt/tradenet/data /etc/tradenet
+          sudo chown -R ec2-user:ec2-user /opt/tradenet/data
+          sudo tee /etc/tradenet/tradenet.env >/dev/null <<'ENV'
+          NODE_ENV=production
+          PORT=8080
+          STATIC_DIR=/opt/tradenet/dist
+          DATABASE_URL=file:/opt/tradenet/data/tradenet.db
+          ENV
+          sudo tee /etc/systemd/system/tradenet-api.service >/dev/null <<'SERVICE'
+          [Unit]
+          Description=TradeNet API
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/tradenet
+          EnvironmentFile=/etc/tradenet/tradenet.env
+          ExecStart=/usr/bin/node /opt/tradenet/services/api/dist/index.js
+          Restart=always
+          RestartSec=5
+          User=ec2-user
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+          sudo systemctl daemon-reload
+          cd /opt/tradenet
+          npm ci --omit=dev --workspace @tradenet/api
+          DATABASE_URL=file:/opt/tradenet/data/tradenet.db npm run db:generate
+          DATABASE_URL=file:/opt/tradenet/data/tradenet.db npm run db:migrate
+          DATABASE_URL=file:/opt/tradenet/data/tradenet.db npm run seed
+          sudo systemctl enable tradenet-api
           sudo systemctl start tradenet-api
           sudo nginx -t
           sudo systemctl reload nginx
           curl -f http://127.0.0.1:8080/api/health
+          curl -f http://127.0.0.1:8080/api/ready
           SSH
 
       - name: Close temporary SSH ingress

@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  IMPORTER
+  CUSTOMS_OFFICER
+  OPS_ADMIN
+}
+
+enum DeclarationStatus {
+  RECEIVED
+  VALIDATED
+  PROCESSING
+  AWAITING_PARTNER
+  INSPECTION_REQUIRED
+  READY_FOR_CLEARANCE
+  APPROVED
+  HELD
+  REJECTED
+}
+
+enum RiskBand {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum InspectionRoute {
+  NONE
+  DOCUMENT_REVIEW
+  PHYSICAL
+}
+
+enum ClearanceDecision {
+  APPROVED
+  HELD
+  REJECTED
+}
+
+enum PartnerSyncStatus {
+  HEALTHY
+  DEGRADED
+  FAILED
+  PENDING
+}
+
+model Organisation {
+  id           String        @id
+  name         String
+  kind         String
+  countryCode  String
+  createdAt    DateTime      @default(now())
+  users        User[]
+  declarations Declaration[]
+}
+
+model User {
+  id             String        @id
+  email          String        @unique
+  name           String
+  passwordHash   String
+  role           Role
+  organisationId String
+  createdAt      DateTime      @default(now())
+  organisation   Organisation  @relation(fields: [organisationId], references: [id])
+  sessions       Session[]
+  declarations   Declaration[] @relation("DeclarationCreator")
+  auditEvents    AuditEvent[]
+}
+
+model Session {
+  id        String   @id
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Declaration {
+  id                String            @id
+  referenceNo       String            @unique
+  status            DeclarationStatus
+  originCountry     String
+  destinationCountry String
+  commodityCategory String
+  hsCode            String
+  declaredValue     Float
+  currency          String            @default("USD")
+  previousViolation Boolean           @default(false)
+  idempotencyKey    String            @unique
+  organisationId    String
+  createdById       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  createdBy         User              @relation("DeclarationCreator", fields: [createdById], references: [id])
+  documents         Document[]
+  riskAssessment    RiskAssessment?
+  dutyAssessment    DutyAssessment?
+  inspection        Inspection?
+  partnerSyncs      PartnerSync[]
+  auditEvents       AuditEvent[]
+}
+
+model Document {
+  id            String      @id
+  declarationId String
+  type          String
+  filename      String
+  status        String
+  createdAt     DateTime    @default(now())
+  declaration   Declaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+}
+
+model RiskAssessment {
+  id            String      @id
+  declarationId String      @unique
+  score         Int
+  band          RiskBand
+  factorsJson   String
+  createdAt     DateTime    @default(now())
+  declaration   Declaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+}
+
+model DutyAssessment {
+  id            String      @id
+  declarationId String      @unique
+  tariffRate    Float
+  taxRate       Float
+  totalDuty     Float
+  currency      String      @default("USD")
+  createdAt     DateTime    @default(now())
+  declaration   Declaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+}
+
+model Inspection {
+  id            String          @id
+  declarationId String          @unique
+  route         InspectionRoute
+  reason        String
+  assignedTeam  String?
+  scheduledAt   DateTime?
+  createdAt     DateTime        @default(now())
+  declaration   Declaration     @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+}
+
+model PartnerSync {
+  id            String            @id
+  declarationId String
+  partner       String
+  status        PartnerSyncStatus
+  lastSyncedAt  DateTime?
+  latencyMs     Int?
+  message       String
+  createdAt     DateTime          @default(now())
+  declaration   Declaration       @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id            String       @id
+  declarationId String?
+  userId        String?
+  action        String
+  status        String?
+  message       String
+  metadataJson  String?
+  createdAt     DateTime     @default(now())
+  declaration   Declaration? @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
