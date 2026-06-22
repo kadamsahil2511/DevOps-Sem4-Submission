@@ -56,30 +56,17 @@ app.get(
 )
 
 app.get(
+  '/api/metrics',
+  asyncHandler(async (_request, response) => {
+    const metrics = await getPublicMetrics()
+    response.type('text/plain; version=0.0.4').send(toPrometheus(metrics))
+  }),
+)
+
+app.get(
   '/api/metrics/domain',
   asyncHandler(async (_request, response) => {
-    const declarations = await prisma.declaration.findMany({
-      include: {
-        riskAssessment: true,
-      },
-    })
-    const totals = declarations.reduce<Record<string, number>>((summary, declaration) => {
-      summary[declaration.status] = (summary[declaration.status] ?? 0) + 1
-      return summary
-    }, {})
-    const averageRisk =
-      declarations.length === 0
-        ? 0
-        : declarations.reduce((total, declaration) => total + (declaration.riskAssessment?.score ?? 0), 0) /
-          declarations.length
-    const processing = declarations.filter((declaration) =>
-      ['RECEIVED', 'VALIDATED', 'PROCESSING', 'AWAITING_PARTNER', 'INSPECTION_REQUIRED'].includes(declaration.status),
-    )
-    const oldestProcessingSeconds = processing.length
-      ? Math.round((Date.now() - Math.min(...processing.map((declaration) => declaration.createdAt.getTime()))) / 1000)
-      : 0
-
-    response.json({ totals, averageRisk, oldestProcessingSeconds })
+    response.json(await getPublicMetrics())
   }),
 )
 
@@ -225,4 +212,44 @@ function asyncHandler(handler: (request: Request, response: Response, next: Next
   return (request: Request, response: Response, next: NextFunction) => {
     handler(request, response, next).catch(next)
   }
+}
+
+async function getPublicMetrics() {
+  const declarations = await prisma.declaration.findMany({
+    include: {
+      riskAssessment: true,
+    },
+  })
+  const totals = declarations.reduce<Record<string, number>>((summary, declaration) => {
+    summary[declaration.status] = (summary[declaration.status] ?? 0) + 1
+    return summary
+  }, {})
+  const averageRisk =
+    declarations.length === 0
+      ? 0
+      : declarations.reduce((total, declaration) => total + (declaration.riskAssessment?.score ?? 0), 0) /
+        declarations.length
+  const processing = declarations.filter((declaration) =>
+    ['RECEIVED', 'VALIDATED', 'PROCESSING', 'AWAITING_PARTNER', 'INSPECTION_REQUIRED'].includes(declaration.status),
+  )
+  const oldestProcessingSeconds = processing.length
+    ? Math.round((Date.now() - Math.min(...processing.map((declaration) => declaration.createdAt.getTime()))) / 1000)
+    : 0
+
+  return { totals, averageRisk, oldestProcessingSeconds }
+}
+
+function toPrometheus(metrics: Awaited<ReturnType<typeof getPublicMetrics>>) {
+  const lines = [
+    '# HELP tradenet_declarations_total Declarations by status.',
+    '# TYPE tradenet_declarations_total gauge',
+    ...Object.entries(metrics.totals).map(([status, count]) => `tradenet_declarations_total{status="${status}"} ${count}`),
+    '# HELP tradenet_average_risk Average declaration risk score.',
+    '# TYPE tradenet_average_risk gauge',
+    `tradenet_average_risk ${metrics.averageRisk}`,
+    '# HELP tradenet_oldest_processing_seconds Oldest open processing age in seconds.',
+    '# TYPE tradenet_oldest_processing_seconds gauge',
+    `tradenet_oldest_processing_seconds ${metrics.oldestProcessingSeconds}`,
+  ]
+  return `${lines.join('\n')}\n`
 }

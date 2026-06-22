@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: tradenet-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets:
+          - tradenet-api.tradenet-apps.svc.cluster.local:8080
+          - host.docker.internal:8080

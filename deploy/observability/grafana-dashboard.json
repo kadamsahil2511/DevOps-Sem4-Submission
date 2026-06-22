@@ -1,0 +1,26 @@
+{
+  "title": "TradeNet Operations",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Declarations by Status",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "targets": [{ "expr": "tradenet_declarations_total", "legendFormat": "{{status}}" }]
+    },
+    {
+      "type": "gauge",
+      "title": "Average Risk",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "targets": [{ "expr": "tradenet_average_risk" }]
+    },
+    {
+      "type": "stat",
+      "title": "Oldest Processing Seconds",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "targets": [{ "expr": "tradenet_oldest_processing_seconds" }]
+    }
+  ]
+}

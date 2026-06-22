@@ -133,6 +133,12 @@ SERVICE
 
 sudo systemctl daemon-reload
 cd "$APP_DIR"
+if ! node -e "const [major]=process.versions.node.split('.').map(Number); process.exit(major >= 20 ? 0 : 1)"; then
+  curl -fsSL https://rpm.nodesource.com/setup_26.x | sudo bash -
+  sudo dnf install -y nodejs
+fi
+node --version
+npm --version
 npm ci --omit=dev --workspace @tradenet/api
 DATABASE_URL="file:$APP_DIR/data/tradenet.db" npm run db:generate
 DATABASE_URL="file:$APP_DIR/data/tradenet.db" npm run db:migrate
